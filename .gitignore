@@ -2,7 +2,6 @@
 __pycache__/
 *.py[cod]
 
-test.py
 
 # config
 *.ini
@@ -17,6 +16,9 @@ venv/
 
 # CSV files
 *.csv
+
+# json
+*.json
 
 # Logs
 *.log

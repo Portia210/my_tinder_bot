@@ -1,4 +1,4 @@
-from logging import exception
+from ast import Index
 from time import sleep
 import configparser
 import json
@@ -95,67 +95,87 @@ notifications_button = wait_for_element(driver, By.CSS_SELECTOR, '[aria-label="I
 driver.execute_script("arguments[0].click();", notifications_button)
 print("allow notification")
 
-# Tinder free tier only allows 100 "Likes" per day. If you have a premium account, feel free to change to a while loop.
-name_element = wait_for_element(driver, By.XPATH, '//span[@itemprop="name"]', timeout=40)
 click_interceptions = 0
+refresh_counter = 0
+finish_program = False
+
+# Tinder free tier only allows 100 "Likes" per day. If you have a premium account, feel free to change to a while loop.
+data_element = wait_for_element(driver, By.CSS_SELECTOR, 'div[data-keyboard-gamepad="true"][aria-hidden="false"]', timeout=40)
 for n in range(5000):
     try:
         # Check if name and age exist
-        name_element = wait_for_element(driver, By.XPATH, '//span[@itemprop="name"]', timeout=3)
-        name = name_element.text
-        all_details = name_element.find_element(By.XPATH, '../../../..').text
+        data_element = wait_for_element(driver, By.CSS_SELECTOR, 'div[data-keyboard-gamepad="true"][aria-hidden="false"]', timeout=8)
+        name = data_element.find_element(By.CSS_SELECTOR, '[itemprop="name"]').text
+        all_details = data_element.text
 
 
         random_sec = round(random.uniform(0.5, 1.2), 1)
         sleep(random_sec)
 
-        btn_group = driver.find_elements(By.CSS_SELECTOR, "span[class='D(b) Expand']")
+        link_btn = driver.find_element(By.CSS_SELECTOR, 'div.Bdc\\(\\$c-ds-border-gamepad-like-default\\) button')
+        nope_btn = driver.find_element(By.CSS_SELECTOR, 'div.Bdc\\(\\$c-ds-border-gamepad-nope-default\\) button')
         if n % 26 == 0 and n != 0 :
             # click on nope
-            driver.execute_script("arguments[0].click();", btn_group[0])
+            driver.execute_script("arguments[0].click();", nope_btn)
 
             print("Nope")
         else:
             # click on like
-            driver.execute_script("arguments[0].click();", btn_group[2])
+            driver.execute_script("arguments[0].click();", link_btn)
 
             print(f"Clicked Like for {name}")
             matches_details.append(all_details)
+
+        if n % 20 == 0:
+            # Store the list in a JSON file
+            with open('matches_details.json', 'w') as f:
+                json.dump(matches_details, f, indent=4)
         click_interceptions = 0
 
     #deal with cases that couldn't click the btn
-    except NoSuchElementException as e:
-        print(f"couldn't like\nNoSuchElementException: {e}")
+    except (NoSuchElementException, TimeoutException, ElementClickInterceptedException) as e:
+        print(f"{e.__class__.__name__}")
 
-    except TimeoutException as e:
-        print(f"couldn't like\nTimeoutException: {e}")
+        try:
+            driver.find_element(By.CSS_SELECTOR, 'output[aria-busy="true"]')
 
-    except ElementClickInterceptedException as e:
-        print(f"couldn't like\nElementClickInterceptedException: {e}")
+
+            while True:
+                print("run out of potential matches, let's refresh")
+                seconds_to_wait = 600
+                print(f"waiting {seconds_to_wait} for more results")
+                sleep(seconds_to_wait)
+                driver.refresh()
+                try:
+                    wait_for_element(driver, By.XPATH, '//span[@itemprop="name"]', timeout=20)
+                    break
+                except TimeoutException:
+                    refresh_counter += 1
+                    if refresh_counter == 3:
+                        print("tried 3 times to get results but couldn't, exiting")
+                        finish_program = True
+                        break
+            if finish_program:
+                break
+
+        except NoSuchElementException:
+            print("no result and not looking for results")
+            print("unknown error, no more matches, and not looking as well")
+            break
+
+
+
 
     except Exception as e:
         print(f"couldn't like\nOther Exception: {e}")
 
-        if e == "list index out of range":
-            print("probably run out of potential matches, let's refresh")
-            driver.refresh()
-            try:
-                wait_for_element(driver, By.XPATH, '//span[@itemprop="name"]', timeout=20)
-            except TimeoutException:
-                break
-        else:
-            click_interceptions += 1
-            if click_interceptions == 3:
-                break
-            continue
+        click_interceptions += 1
+        if click_interceptions == 3:
+            break
+        continue
 
 
 
-
-    if n % 20 == 0:
-        # Store the list in a JSON file
-        with open('matches_details.json', 'w') as f:
-            json.dump(matches_details, f, indent=4)
 
 # Store the list in a JSON file
 with open('matches_details.json', 'w') as f:
