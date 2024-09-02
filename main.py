@@ -1,6 +1,6 @@
-from ast import Index
+import os
 from time import sleep
-import configparser
+from dotenv import load_dotenv
 import json
 from selenium.common import TimeoutException
 from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException
@@ -12,14 +12,15 @@ from selenium.webdriver.common.action_chains import ActionChains
 import random
 from driver import init_driver, wait_for_element
 
-config = configparser.ConfigParser()
-config.read('config.ini')
-user = config["User"]
+load_dotenv(override=True)
+USERNAME = os.getenv("FB_USERNAME")
+PASSWORD = os.getenv("FB_PASSWORD")
+print(USERNAME, PASSWORD)
 
 with open("matches_details.json") as file:
     matches_details = json.load(file)
 
-driver = init_driver(headless=False)
+driver = init_driver(headless=True)
 
 print("please wait for Tinder to load...")
 print("----------------------------------------")
@@ -56,8 +57,8 @@ driver.switch_to.window(fb_login_window)
 # Login and hit enter
 email = driver.find_element(By.XPATH, value='//*[@id="email"]')
 password = driver.find_element(By.XPATH, value='//*[@id="pass"]')
-email.send_keys(user["username"])
-password.send_keys(user["password"])
+email.send_keys(USERNAME)
+password.send_keys(PASSWORD)
 password.send_keys(Keys.ENTER)
 
 try:

@@ -32,4 +32,4 @@ for entry in data:
 
 
 df = pd.DataFrame(output)
-df.to_csv("output.csv", index=False, encoding='utf-8')
+df.to_csv("output.csv", index=False, encoding='utf-16')
