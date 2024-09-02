@@ -1,187 +1,208 @@
 import os
-from time import sleep
-from dotenv import load_dotenv
 import json
-from selenium.common import TimeoutException
-from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException
+import random
+from time import sleep
+from typing import List, Dict, Tuple
+from dotenv import load_dotenv
+from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
-import random
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
 from driver import init_driver, wait_for_element
+from data_to_csv import format_data_to_csv
 
-load_dotenv(override=True)
-USERNAME = os.getenv("FB_USERNAME")
-PASSWORD = os.getenv("FB_PASSWORD")
-print(USERNAME, PASSWORD)
+# Constants
+MAX_LIKES = 5000
+NOPE_FREQUENCY = 26 # for how many people click nope
+INITIAL_WAIT_TIME = 30 # how much time wait the first time the page is loaded
+REFRESH_WAIT_TIME = 300 # after no more result how much time before refresh
+REFRESH_ATTEMPTS = 2  # Number of refresh attempts per call (if no more results ending)
+TOTAL_REFRESH_LIMIT = 5  # Total number of refresh attempts allowed
 
-with open("matches_details.json") as file:
-    matches_details = json.load(file)
+total_refreshes = 0  # Global counter for total refreshes
 
-driver = init_driver(headless=True)
+def load_config() -> Dict[str, str]:
+    """Load configuration from .env file."""
+    load_dotenv(override=True)
+    return {
+        "username": os.getenv("FB_USERNAME"),
+        "password": os.getenv("FB_PASSWORD")
+    }
 
-print("please wait for Tinder to load...")
-print("----------------------------------------")
-driver.get("https://tinder.com/")
-sleep(2)
-# Create an instance of ActionChains
-actions = ActionChains(driver)
-
-# accept_cookies = wait_for_element(driver, By.XPATH, '//*[@id="c-2079390956"]/div/div[2]/div/div/div[1]/div[1]/button/div[2]/div[2]/div')
-# accept_cookies.click()
-
-language_picker = wait_for_element(driver, By.CSS_SELECTOR, ".language-picker")
-driver.execute_script("arguments[0].click();", language_picker)
-sleep(0.5)
-en_lang = driver.find_element(By.CSS_SELECTOR, 'a[lang="en"]')
-driver.execute_script("arguments[0].click();", en_lang)
-print("changed lang")
-sleep(1)
-login_button = driver.find_element(By.XPATH, value='//*[text()="Log in"]')
-driver.execute_script("arguments[0].click();", login_button)
-
-sleep(1)
-fb_login = wait_for_element(driver, By.CSS_SELECTOR, '[aria-label="Log in with Facebook"]')
-driver.execute_script("arguments[0].click();", fb_login)
-print("enter to fb login page")
-
-sleep(1)
-# Wait for the new window to open
-WebDriverWait(driver, 20).until(EC.number_of_windows_to_be(2))
-base_window = driver.window_handles[0]
-fb_login_window = driver.window_handles[1]
-driver.switch_to.window(fb_login_window)
-
-# Login and hit enter
-email = driver.find_element(By.XPATH, value='//*[@id="email"]')
-password = driver.find_element(By.XPATH, value='//*[@id="pass"]')
-email.send_keys(USERNAME)
-password.send_keys(PASSWORD)
-password.send_keys(Keys.ENTER)
-
-try:
-    continue_as = wait_for_element(driver, By.XPATH,
-                                   "//div[@role='button' and (contains(@aria-label, 'המשך בתור') or contains(@aria-label, 'Continue as'))]")
-    driver.execute_script("arguments[0].click();", continue_as)
-    print("success fb login")
-except TimeoutException:
-    print("problem with facebook login, close it manually")
-    driver.close()
-sleep(1)
-# Wait for the new window to open
-try:
-    WebDriverWait(driver, 20).until(EC.number_of_windows_to_be(1))
-except TimeoutException:
-    driver.close()
-    WebDriverWait(driver, 20).until(EC.number_of_windows_to_be(1))
-
-
-driver.switch_to.window(base_window)
-
-sleep(1)
-
-# Allow cookies
-cookies = wait_for_element(driver, By.XPATH, '//*[text()="I accept"]')
-driver.execute_script("arguments[0].click();", cookies)
-
-# Allow location
-allow_location_button = wait_for_element(driver, By.CSS_SELECTOR, '[aria-label="Allow"]')
-driver.execute_script("arguments[0].click();", allow_location_button)
-print("allow location")
-
-# Disallow notifications
-notifications_button = wait_for_element(driver, By.CSS_SELECTOR, '[aria-label="I’ll miss out"]')
-driver.execute_script("arguments[0].click();", notifications_button)
-print("allow notification")
-
-click_interceptions = 0
-refresh_counter = 0
-finish_program = False
-
-# Tinder free tier only allows 100 "Likes" per day. If you have a premium account, feel free to change to a while loop.
-data_element = wait_for_element(driver, By.CSS_SELECTOR, 'div[data-keyboard-gamepad="true"][aria-hidden="false"]', timeout=40)
-for n in range(5000):
-    try:
-        # Check if name and age exist
-        data_element = wait_for_element(driver, By.CSS_SELECTOR, 'div[data-keyboard-gamepad="true"][aria-hidden="false"]', timeout=8)
-        name = data_element.find_element(By.CSS_SELECTOR, '[itemprop="name"]').text
-        all_details = data_element.text
-
-
-        random_sec = round(random.uniform(0.5, 1.2), 1)
-        sleep(random_sec)
-
-        link_btn = driver.find_element(By.CSS_SELECTOR, 'div.Bdc\\(\\$c-ds-border-gamepad-like-default\\) button')
-        nope_btn = driver.find_element(By.CSS_SELECTOR, 'div.Bdc\\(\\$c-ds-border-gamepad-nope-default\\) button')
-        if n % 26 == 0 and n != 0 :
-            # click on nope
-            driver.execute_script("arguments[0].click();", nope_btn)
-
-            print("Nope")
-        else:
-            # click on like
-            driver.execute_script("arguments[0].click();", link_btn)
-
-            print(f"Clicked Like for {name}")
-            matches_details.append(all_details)
-
-        if n % 20 == 0:
-            # Store the list in a JSON file
-            with open('matches_details.json', 'w') as f:
-                json.dump(matches_details, f, indent=4)
-        click_interceptions = 0
-
-    #deal with cases that couldn't click the btn
-    except (NoSuchElementException, TimeoutException, ElementClickInterceptedException) as e:
-        print(f"{e.__class__.__name__}")
-
+def import_data() -> List[str]:
+    """Load data from a JSON file and return it as a list. Create the file if it doesn't exist."""
+    filename = 'matches_details.json'
+    if not os.path.exists(filename):
+        with open(filename, 'w') as f:
+            json.dump([], f)
+    with open(filename, 'r') as f:
         try:
-            driver.find_element(By.CSS_SELECTOR, 'output[aria-busy="true"]')
+            data = json.load(f)
+        except json.JSONDecodeError:
+            data = []
+    return data
+
+def save_data(initial_len : int, data: List[str]) -> None:
+    """Save data to JSON and CSV files."""
+    with open('matches_details.json', 'w') as f:
+        json.dump(data, f, indent=4)
+    format_data_to_csv(data)
+    print(f"Stored {len(data)- initial_len} matches in matches_details.json and in output.csv")
+
+def login_to_tinder(driver: WebDriver, config: Dict[str, str]) -> None:
+    """Log in to Tinder using Facebook."""
+    driver.get("https://tinder.com/")
+    sleep(1)
+
+    language_picker = wait_for_element(driver, By.CSS_SELECTOR, ".language-picker")
+    driver.execute_script("arguments[0].click();", language_picker)
+    en_lang = wait_for_element(driver, By.CSS_SELECTOR, 'a[lang="en"]')
+    driver.execute_script("arguments[0].click();", en_lang)
+    print("Changed language to English")
+    sleep(1)
+
+    login_button = driver.find_element(By.XPATH, value='//*[text()="Log in"]')
+    driver.execute_script("arguments[0].click();", login_button)
+    sleep(1)
+
+    fb_login = wait_for_element(driver, By.CSS_SELECTOR, '[aria-label="Log in with Facebook"]')
+    driver.execute_script("arguments[0].click();", fb_login)
+    print("Entered Facebook login page")
+    sleep(1)
+
+    handle_facebook_login(driver, config)
+
+def handle_facebook_login(driver: WebDriver, config: Dict[str, str]) -> None:
+    """Handle Facebook login window."""
+    WebDriverWait(driver, 20).until(EC.number_of_windows_to_be(2))
+    base_window = driver.window_handles[0]
+    fb_login_window = driver.window_handles[1]
+    driver.switch_to.window(fb_login_window)
+
+    email = driver.find_element(By.XPATH, value='//*[@id="email"]')
+    password = driver.find_element(By.XPATH, value='//*[@id="pass"]')
+    email.send_keys(config["username"])
+    password.send_keys(config["password"])
+    password.send_keys(Keys.ENTER)
+
+    try:
+        continue_as = wait_for_element(driver, By.XPATH, "//div[@role='button' and (contains(@aria-label, 'Continue as'))]")
+        driver.execute_script("arguments[0].click();", continue_as)
+        print("Successfully logged in via Facebook")
+    except TimeoutException:
+        print("Problem with Facebook login, please close it manually")
+        driver.close()
+
+    sleep(1)
+    try:
+        WebDriverWait(driver, 20).until(EC.number_of_windows_to_be(1))
+    except TimeoutException:
+        driver.close()
+        WebDriverWait(driver, 20).until(EC.number_of_windows_to_be(1))
+
+    driver.switch_to.window(base_window)
+    sleep(1)
+
+def handle_tinder_popup(driver: WebDriver) -> None:
+    """Handle Tinder pop-ups after login."""
+    cookies = wait_for_element(driver, By.XPATH, '//*[text()="I accept"]')
+    driver.execute_script("arguments[0].click();", cookies)
+    print("Allowed Cookies")
+
+    allow_location_button = wait_for_element(driver, By.CSS_SELECTOR, '[aria-label="Allow"]')
+    driver.execute_script("arguments[0].click();", allow_location_button)
+    print("Allowed location")
+
+    notifications_button = wait_for_element(driver, By.CSS_SELECTOR, '[aria-label="I’ll miss out"]')
+    driver.execute_script("arguments[0].click();", notifications_button)
+    print("Disallowed notifications")
+
+def swipe(driver: WebDriver, direction: str) -> None:
+    """Swipe left or right."""
+    if direction == "like":
+        btn = driver.find_element(By.CSS_SELECTOR, 'div.Bdc\\(\\$c-ds-border-gamepad-like-default\\) button')
+    else:
+        btn = driver.find_element(By.CSS_SELECTOR, 'div.Bdc\\(\\$c-ds-border-gamepad-nope-default\\) button')
+    driver.execute_script("arguments[0].click();", btn)
+
+def get_profile_details(driver: WebDriver, wait_time: int = 8) -> Tuple[str, str]:
+    """Get profile details of the current match."""
+    data_element = wait_for_element(driver, By.CSS_SELECTOR, 'div[data-keyboard-gamepad="true"][aria-hidden="false"]', wait_time)
+    name_element = data_element.find_element(By.CSS_SELECTOR, '[itemprop="name"]')
+    return name_element.text, data_element.text
 
 
-            while True:
-                print("run out of potential matches, let's refresh")
-                seconds_to_wait = 600
-                print(f"waiting {seconds_to_wait} for more results")
-                sleep(seconds_to_wait)
-                driver.refresh()
-                try:
-                    wait_for_element(driver, By.XPATH, '//span[@itemprop="name"]', timeout=20)
+def handle_out_of_matches(driver: WebDriver) -> bool:
+    """Handle the case when we run out of matches."""
+    global total_refreshes
+    try:
+        driver.find_element(By.CSS_SELECTOR, 'output[aria-busy="true"]')
+        for attempt in range(REFRESH_ATTEMPTS):
+            if total_refreshes >= TOTAL_REFRESH_LIMIT:
+                print(f"Reached the total refresh limit of {TOTAL_REFRESH_LIMIT}. Exiting.")
+                return True
+
+            print(
+                f"Run out of potential matches. Waiting {REFRESH_WAIT_TIME} seconds for more results (Attempt {attempt + 1}/{REFRESH_ATTEMPTS}, Total refreshes {total_refreshes + 1}/{TOTAL_REFRESH_LIMIT})")
+            sleep(REFRESH_WAIT_TIME)
+            driver.refresh()
+            total_refreshes += 1
+
+            try:
+                wait_for_element(driver, By.XPATH, '//span[@itemprop="name"]', timeout=20)
+                return False
+            except TimeoutException:
+                continue
+
+        print(
+            f"Tried {REFRESH_ATTEMPTS} times to get results but couldn't. Total refreshes: {total_refreshes}/{TOTAL_REFRESH_LIMIT}")
+        return True
+    except NoSuchElementException:
+        print("No results and not looking for results. Unknown error. Exiting.")
+        return True
+
+def main():
+    config = load_config()
+    driver = init_driver(headless=False)
+    matches_details = import_data()
+    initial_match_amount = len(matches_details)
+
+    try:
+        login_to_tinder(driver, config)
+        handle_tinder_popup(driver)
+
+        wait_time = INITIAL_WAIT_TIME
+        for n in range(MAX_LIKES):
+            try:
+                name, profile_details = get_profile_details(driver, wait_time)
+
+                sleep(random.uniform(0.5, 3))
+
+                if random.choice([True, False]):
+                    swipe(driver, "nope")
+                    print(f"Nope for {name}")
+                else:
+                    swipe(driver, "like")
+                    print(f"Like for {name}")
+                    matches_details.append(profile_details)
+
+                wait_time = 8
+
+            except (NoSuchElementException, TimeoutException, ElementClickInterceptedException) as e:
+                print(f"{e.__class__.__name__}")
+                wait_time = INITIAL_WAIT_TIME
+                if handle_out_of_matches(driver):
                     break
-                except TimeoutException:
-                    refresh_counter += 1
-                    if refresh_counter == 3:
-                        print("tried 3 times to get results but couldn't, exiting")
-                        finish_program = True
-                        break
-            if finish_program:
-                break
 
-        except NoSuchElementException:
-            print("no result and not looking for results")
-            print("unknown error, no more matches, and not looking as well")
-            break
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt detected. Stopping gracefully...")
+    finally:
+        print("Saving data and closing the browser...")
+        save_data(initial_match_amount, matches_details)
+        driver.quit()
+        print("Data saved. Program terminated.")
 
-
-
-
-    except Exception as e:
-        print(f"couldn't like\nOther Exception: {e}")
-
-        click_interceptions += 1
-        if click_interceptions == 3:
-            break
-        continue
-
-
-
-
-# Store the list in a JSON file
-with open('matches_details.json', 'w') as f:
-    json.dump(matches_details, f, indent=4)
-
-print(f"Stored {len(matches_details)} matches in matches_details.json")
-
-driver.quit()
+if __name__ == "__main__":
+    main()
