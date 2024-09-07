@@ -2,7 +2,7 @@ import os
 import json
 import random
 from time import sleep
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.common.by import By
@@ -18,8 +18,8 @@ MAX_LIKES = 5000
 NOPE_FREQUENCY = 26 # for how many people click nope
 INITIAL_WAIT_TIME = 30 # how much time wait the first time the page is loaded
 REFRESH_WAIT_TIME = 300 # after no more result how much time before refresh
-REFRESH_ATTEMPTS = 2  # Number of refresh attempts per call (if no more results ending)
-TOTAL_REFRESH_LIMIT = 5  # Total number of refresh attempts allowed
+REFRESH_ATTEMPTS = 1  # Number of refresh attempts per call (if no more results ending)
+TOTAL_REFRESH_LIMIT = 1  # Total number of refresh attempts allowed
 
 total_refreshes = 0  # Global counter for total refreshes
 
@@ -49,7 +49,7 @@ def save_data(initial_len : int, data: List[str]) -> None:
     with open('matches_details.json', 'w') as f:
         json.dump(data, f, indent=4)
     format_data_to_csv(data)
-    print(f"Stored {len(data)- initial_len} matches in matches_details.json and in output.csv")
+    print(f"Added {len(data)- initial_len} matches in matches_details.json and in output.csv")
 
 def login_to_tinder(driver: WebDriver, config: Dict[str, str]) -> None:
     """Log in to Tinder using Facebook."""
@@ -92,7 +92,7 @@ def handle_facebook_login(driver: WebDriver, config: Dict[str, str]) -> None:
         driver.execute_script("arguments[0].click();", continue_as)
         print("Successfully logged in via Facebook")
     except TimeoutException:
-        print("Problem with Facebook login, please close it manually")
+        print("Problem with Facebook login, Closing it ")
         driver.close()
 
     sleep(1)
@@ -127,11 +127,15 @@ def swipe(driver: WebDriver, direction: str) -> None:
         btn = driver.find_element(By.CSS_SELECTOR, 'div.Bdc\\(\\$c-ds-border-gamepad-nope-default\\) button')
     driver.execute_script("arguments[0].click();", btn)
 
-def get_profile_details(driver: WebDriver, wait_time: int = 8) -> Tuple[str, str]:
+def get_profile_details(driver: WebDriver, wait_time: int = 8) -> Tuple[Optional[str], Optional[str]]:
     """Get profile details of the current match."""
-    data_element = wait_for_element(driver, By.CSS_SELECTOR, 'div[data-keyboard-gamepad="true"][aria-hidden="false"]', wait_time)
-    name_element = data_element.find_element(By.CSS_SELECTOR, '[itemprop="name"]')
-    return name_element.text, data_element.text
+    try:
+        data_element = wait_for_element(driver, By.CSS_SELECTOR, 'div[data-keyboard-gamepad="true"][aria-hidden="false"]', wait_time)
+        name_element = data_element.find_element(By.CSS_SELECTOR, '[itemprop="name"]')
+        return name_element.text, data_element.text
+    except NoSuchElementException:
+        print("Name element not found. Proceeding with swipe anyway.")
+        return None, None
 
 
 def handle_out_of_matches(driver: WebDriver) -> bool:
@@ -165,7 +169,7 @@ def handle_out_of_matches(driver: WebDriver) -> bool:
 
 def main():
     config = load_config()
-    driver = init_driver(headless=False)
+    driver = init_driver(headless=True)
     matches_details = import_data()
     initial_match_amount = len(matches_details)
 
@@ -178,20 +182,24 @@ def main():
             try:
                 name, profile_details = get_profile_details(driver, wait_time)
 
-                sleep(random.uniform(0.5, 3))
 
-                if random.choice([True, False]):
+                sleep(random.uniform(0.5, 2))
+
+                if random.choice([True, False]) or name is None:
                     swipe(driver, "nope")
                     print(f"Nope for {name}")
                 else:
                     swipe(driver, "like")
                     print(f"Like for {name}")
-                    matches_details.append(profile_details)
+                    if profile_details.strip():  # Only append non-empty profile details
+                        matches_details.append(profile_details)
 
                 wait_time = 8
 
             except (NoSuchElementException, TimeoutException, ElementClickInterceptedException) as e:
-                print(f"{e.__class__.__name__}")
+                element_info = getattr(e, 'msg', '')
+                print(f"Exception: {e.__class__.__name__}")
+                print(f"Element info: {element_info}")
                 wait_time = INITIAL_WAIT_TIME
                 if handle_out_of_matches(driver):
                     break
