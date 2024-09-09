@@ -2,6 +2,7 @@ import os
 import json
 import random
 from time import sleep
+from datetime import datetime,timedelta
 from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
 from selenium.webdriver.remote.webdriver import WebDriver
@@ -14,12 +15,14 @@ from driver import init_driver, wait_for_element
 from data_to_csv import format_data_to_csv
 
 # Constants
-MAX_LIKES = 5000
-NOPE_FREQUENCY = 26 # for how many people click nope
+MAX_LIKES = 120
+NOPE_FREQUENCY = 3 # for how many people click nope
 INITIAL_WAIT_TIME = 30 # how much time wait the first time the page is loaded
 REFRESH_WAIT_TIME = 300 # after no more result how much time before refresh
 REFRESH_ATTEMPTS = 1  # Number of refresh attempts per call (if no more results ending)
 TOTAL_REFRESH_LIMIT = 1  # Total number of refresh attempts allowed
+MINUTES_SLEEP_SCRIPT_RUNS = 60 # wait between each time script is running
+
 
 total_refreshes = 0  # Global counter for total refreshes
 
@@ -134,7 +137,7 @@ def get_profile_details(driver: WebDriver, wait_time: int = 8) -> Tuple[Optional
         name_element = data_element.find_element(By.CSS_SELECTOR, '[itemprop="name"]')
         return name_element.text, data_element.text
     except NoSuchElementException:
-        print("Name element not found. Proceeding with swipe anyway.")
+        print("Swiping commercial away.")
         return None, None
 
 
@@ -168,49 +171,56 @@ def handle_out_of_matches(driver: WebDriver) -> bool:
         return True
 
 def main():
-    config = load_config()
-    driver = init_driver(headless=True)
-    matches_details = import_data()
-    initial_match_amount = len(matches_details)
+    while True:
+        print(f"Script started at {datetime.now().strftime('%H:%M:%S')}")
+        config = load_config()
+        driver = init_driver(headless=True)
+        matches_details = import_data()
+        initial_match_amount = len(matches_details)
 
-    try:
-        login_to_tinder(driver, config)
-        handle_tinder_popup(driver)
+        try:
+            login_to_tinder(driver, config)
+            handle_tinder_popup(driver)
 
-        wait_time = INITIAL_WAIT_TIME
-        for n in range(MAX_LIKES):
-            try:
-                name, profile_details = get_profile_details(driver, wait_time)
+            wait_time = INITIAL_WAIT_TIME
+            for n in range(MAX_LIKES):
+                try:
+                    name, profile_details = get_profile_details(driver, wait_time)
 
 
-                sleep(random.uniform(0.5, 2))
+                    sleep(random.uniform(0.5, 2))
+                    if random.randint(1,NOPE_FREQUENCY) == 1 or name is None:
+                        swipe(driver, "nope")
+                        print(f"Nope for {name}")
+                    else:
+                        swipe(driver, "like")
+                        print(f"Like for {name}")
+                        if profile_details.strip():  # Only append non-empty profile details
+                            matches_details.append(profile_details)
 
-                if random.choice([True, False]) or name is None:
-                    swipe(driver, "nope")
-                    print(f"Nope for {name}")
-                else:
-                    swipe(driver, "like")
-                    print(f"Like for {name}")
-                    if profile_details.strip():  # Only append non-empty profile details
-                        matches_details.append(profile_details)
+                    wait_time = 8
 
-                wait_time = 8
+                except (NoSuchElementException, TimeoutException, ElementClickInterceptedException) as e:
+                    element_info = getattr(e, 'msg', '')
+                    print(f"Exception: {e.__class__.__name__}")
+                    print(f"Element info: {element_info}")
+                    wait_time = INITIAL_WAIT_TIME
+                    if handle_out_of_matches(driver):
+                        break
 
-            except (NoSuchElementException, TimeoutException, ElementClickInterceptedException) as e:
-                element_info = getattr(e, 'msg', '')
-                print(f"Exception: {e.__class__.__name__}")
-                print(f"Element info: {element_info}")
-                wait_time = INITIAL_WAIT_TIME
-                if handle_out_of_matches(driver):
-                    break
+        except KeyboardInterrupt:
+            print("\nKeyboard interrupt detected. Stopping gracefully...")
+        finally:
+            print("Saving data and closing the browser...")
+            save_data(initial_match_amount, matches_details)
+            driver.quit()
+            print("Data saved. Program terminated.")
 
-    except KeyboardInterrupt:
-        print("\nKeyboard interrupt detected. Stopping gracefully...")
-    finally:
-        print("Saving data and closing the browser...")
-        save_data(initial_match_amount, matches_details)
-        driver.quit()
-        print("Data saved. Program terminated.")
+        end_time = datetime.now()
+        next_run = end_time + timedelta(minutes=MINUTES_SLEEP_SCRIPT_RUNS)
+        print(f"Next run scheduled for {next_run.strftime('%H:%M:%S')}")
+        sleep((next_run - end_time).total_seconds())
+
 
 if __name__ == "__main__":
     main()
